@@ -1,0 +1,555 @@
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>game</title>
+</head>
+
+<body>
+
+    <canvas id="canvas" width="600" height="400"></canvas>
+
+    <script>
+
+        let can = document.getElementById("canvas")
+        let c = can.getContext("2d")
+
+        var game = {
+            state: "menu",
+        };
+
+        let level = 1;
+
+        var overlay = {
+            counter: -1,
+            title: "foo",
+            subtitle: "bar",
+        };
+
+        let shipImage = new Image()
+
+
+        var player = {
+            x: 100,
+            y: 350,
+            width: 14,
+            height: 14,
+            counter: 0,
+            score: 0,
+            ship: 'ship1',
+        };
+        var keyboard = {};
+
+        var playerBullets = [];
+        var enemies = [];
+        var enemyBullets = [];
+
+        // =========== game   ============
+        function updateGame() {
+            if (game.state == "playing" && enemies.length == 0) {
+                game.state = "won";
+                overlay.title = "SWARM DEAD";
+                overlay.subtitle = "press space to menu";
+                overlay.counter = 0;
+            }
+            if (game.state == "over" && keyboard[32]) {
+                game.state = "start";
+                player.state = "alive";
+                player.score = 0;
+                overlay.counter = -1;
+            }
+            if (game.state == "won" && keyboard[32]) {
+                game.state = "menu";
+                player.state = "alive";
+                overlay.counter = -1;
+            }
+
+            if (overlay.counter >= 0) {
+                overlay.counter++;
+            }
+
+        }
+        function updatePlayer() {
+            if (player.state == "dead") return;
+
+            //left arrow
+            if (keyboard[37]) {
+                player.x -= 10;
+                if (player.x < 0) player.x = 0;
+            }
+            //right arrow
+            if (keyboard[39]) {
+                player.x += 10;
+                var right = canvas.width - player.width;
+                if (player.x > right) player.x = right;
+            }
+
+            //space bar
+            if (keyboard[32]) {
+                if (!keyboard.fired) {
+                    firePlayerBullet();
+                    keyboard.fired = true;
+                }
+            } else {
+                keyboard.fired = false;
+            }
+
+            if (player.state == "hit") {
+                player.counter++;
+                if (player.counter >= 40) {
+                    player.counter = 0;
+                    player.state = "dead";
+                    game.state = "over";
+                    overlay.title = "GAME OVER";
+                    overlay.subtitle = "press space to repeat";
+                    overlay.counter = 0;
+                }
+            }
+        }
+
+
+        function updatePlayerBullets() {
+            //move each bullet
+            for (i in playerBullets) {
+                var bullet = playerBullets[i];
+                bullet.y -= 8;
+                bullet.counter++;
+            }
+            //remove the ones that are off the screen
+            playerBullets = playerBullets.filter(function (bullet) {
+                return bullet.y > 0;
+            });
+        }
+
+        // ============== Enemy =============
+        function updateEnemies() {
+
+            //create 10 new enemies the first time through
+            if (game.state == "start") {
+                enemies = [];
+                enemyBullets = [];
+                for (var i = 0; i < 10; i++) {
+                    enemies.push({
+                        x: 50 + i * 50,
+                        y: 10,
+                        width: 40,
+                        height: 40,
+                        state: "alive", // the starting state of enemies
+                        counter: 0, // a counter to use when calculating effects in each state
+                        phase: Math.floor(Math.random() * 50), //make the enemies not be identical
+                        shrink: 20,
+                    });
+                }
+                game.state = "playing";
+            }
+
+
+            //for each enemy
+            for (var i = 0; i < 10; i++) {
+                var enemy = enemies[i];
+                if (!enemy) continue;
+
+                //float back and forth when alive
+                if (enemy && enemy.state == "alive") {
+                    enemy.counter++;
+                    enemy.x += Math.sin(enemy.counter * Math.PI * 2 / 100) * 2;
+                    //fire a bullet every 50 ticks
+                    //use 'phase' so they don't all fire at the same time
+                    if ((enemy.counter + enemy.phase) % 200 == 0) {
+                        enemyBullets.push(createEnemyBullet(enemy));
+                    }
+                }
+
+                //enter the destruction state when hit
+                if (enemy && enemy.state == "hit") {
+                    enemy.counter++;
+
+                    //finally be dead so it will get cleaned up
+                    if (enemy.counter >= 20) {
+                        enemy.state = "dead";
+                        enemy.counter = 0;
+                    }
+                }
+            }
+
+            //remove the dead ones
+            enemies = enemies.filter(function (e) {
+                if (e && e.state != "dead") return true;
+                return false;
+            });
+        }
+
+
+        function updateEnemyBullets() {
+            for (var i in enemyBullets) {
+                var bullet = enemyBullets[i];
+                bullet.y += 2;
+                bullet.counter++;
+            }
+        }
+
+        // =========== check for collisions ===
+
+        function checkCollisions() {
+            for (var i in playerBullets) {
+                var bullet = playerBullets[i];
+                for (var j in enemies) {
+                    var enemy = enemies[j];
+                    if (collided(bullet, enemy)) {
+                        bullet.state = "hit";
+                        enemy.state = "hit";
+                        enemy.counter = 0;
+                    }
+                }
+            }
+
+            if (player.state == "hit" || player.state == "dead") return;
+            for (var i in enemyBullets) {
+                var bullet = enemyBullets[i];
+                if (collided(bullet, player)) {
+                    bullet.state = "hit";
+                    player.state = "hit";
+                    player.counter = 0;
+                }
+            }
+        }
+
+        function collided(a, b) {
+
+            //check for horz collision
+            if (b.x + b.width >= a.x && b.x < a.x + a.width) {
+                //check for vert collision
+                if (b.y + b.height >= a.y && b.y < a.y + a.height) {
+                    return true;
+                }
+            }
+
+            //check a inside b
+            if (b.x <= a.x && b.x + b.width >= a.x + a.width) {
+                if (b.y <= a.y && b.y + b.height >= a.y + a.height) {
+                    return true;
+                }
+            }
+
+            //check b inside a
+            if (a.x <= b.x && a.x + a.width >= b.x + b.width) {
+                if (a.y <= b.y && a.y + a.height >= b.y + b.height) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        //====================================
+
+
+        function doSetup() {
+            attachEvent(document, "keydown", function (e) {
+                keyboard[e.keyCode] = true;
+            });
+            attachEvent(document, "keyup", function (e) {
+                keyboard[e.keyCode] = false;
+            });
+        }
+
+        function attachEvent(node, name, func) {
+            if (node.addEventListener) {
+                node.addEventListener(name, func, false);
+            } else if (node.attachEvent) {
+                node.attachEvent(name, func);
+            }
+        };
+
+        let width = can.getAttribute('width')
+        let height = can.getAttribute('height')
+
+        let mouseX
+        let mouseY
+
+        let logoImage = new Image()
+        let playImage = new Image()
+        let enemyImg = new Image()
+        let ins = new Image()
+
+        let frames = 30
+        let timerId = 0
+        let loopId = 0
+        let fadeId = 0
+        let time = 0.0
+
+        let bestScore = 0;
+
+        enemyImg.src = 'images/enemy.png'
+        shipImage.src = "images/ship1.png"
+        logoImage.src = "images/gameTitle.png"
+        playImage.src = "images/startBtn.png"
+        ins.src = "images/in.png"
+
+        can.addEventListener("mousemove", checkPos)
+        can.addEventListener("mouseup", checkClick)
+
+        timerId = setInterval(update, 1000 / frames)
+
+        function update() {
+            clear()
+            draw()
+        }
+
+        function clear() {
+            c.clearRect(0, 0, width, height)
+        }
+
+        function draw() {
+            bgAnim()
+            c.drawImage(logoImage, 105, 40)
+            c.drawImage(playImage, 253, 160)
+            c.drawImage(ins, 190, 220)
+            c.fillStyle = "white";
+            c.font = "Bold 12pt Arial";
+            c.fillText("Счёт: " + bestScore, 260, 380);
+        }
+        function checkPos(mouseEvent) {
+            if (mouseEvent.pageX || mouseEvent.pageY == 0) {
+                mouseX = mouseEvent.pageX - this.offsetLeft
+                mouseY = mouseEvent.pageY - this.offsetTop
+            } else if (mouseEvent.offsetX || mouseEvent.offsetY == 0) {
+                mouseX = mouseEvent.offsetX
+                mouseY = mouseEvent.offsetY
+            }
+        }
+        function checkClick(mouseEvent) {
+            if (mouseX > 253 && mouseX < 253 + 98) {
+                if (mouseY > 160 && mouseY < 160 + 24) {
+                    fadeId = setInterval("fadeOut()", 1000 / frames)
+                    clearInterval(timerId)
+                    can.removeEventListener("mousemove", checkPos)
+                    can.removeEventListener("mouseup", checkClick)
+                }
+            }
+        }
+
+        function fadeOut() {
+            c.fillStyle = "rgba(0,0,0, 0.2)"
+            c.fillRect(0, 0, width, height)
+            time += 0.1
+            if (time >= 2) {
+                clearInterval(fadeId)
+                time = 0
+                if (mouseX > 253 && mouseX < 351 && mouseY > 160 && mouseY < 185) {
+                    startGame()
+                }
+                can.addEventListener("mousemove", checkPos)
+                can.addEventListener("mouseup", checkClick)
+            }
+        }
+
+        function bgAnim() {
+            c.fillStyle = "black";
+            c.fillRect(0, 0, can.width, can.height);
+        }
+
+        function startGame() {
+            game.state = 'start'
+            loopId = setInterval(mainLoop, 1000 / frames)
+        }
+
+        player.width = 46;
+        player.height = 46;
+
+        var bomb_image;
+        var bullet_image;
+
+        loadResources();
+
+        function loadResources() {
+
+            bomb_image = new Image();
+            bomb_image.src = "images/bomb.png";
+
+            bullet_image = new Image();
+            bullet_image.src = "images/bullets.png";
+
+        }
+
+        function mainLoop() {
+            var c = can.getContext('2d');
+            updateGame();
+            updateEnemies();
+            updatePlayer();
+            updatePlayerBullets();
+            updateEnemyBullets();
+            checkCollisions();
+            bgAnim()
+            drawEnemies(c);
+            drawPlayer(c);
+            drawEnemyBullets(c);
+            drawPlayerBullets(c);
+            drawOverlay(c);
+            score()
+            end()
+        }
+
+        document.addEventListener('keydown', function (event) {
+            if (event.keyCode == 27 && game.state == "pause") {
+                game.state = 'playing'
+                loopId = setInterval(mainLoop, 1000 / frames)
+            } else if (game.state == "playing" && event.keyCode == 27) {
+                game.state = 'pause'
+                clearInterval(loopId)
+            }
+        })
+
+        function end() {
+            if (game.state == 'menu') {
+                clearInterval(loopId)
+                clearInterval(timerId)
+                timerId = setInterval(update, 1000 / frames)
+            }
+        }
+
+        // =========== player ============
+
+        function firePlayerBullet() {
+            //create a new bullet
+            playerBullets.push({
+                x: player.x + 14,
+                y: player.y - 7,
+                width: 8,
+                height: 12,
+                counter: 0,
+            });
+        }
+
+        function drawPlayer(c) {
+            if (player.state == "dead") return;
+
+            if (player.state == "hit") {
+                drawPlayerExplosion(c)
+                return;
+            }
+            c.drawImage(shipImage,
+                0, 0, 24, 24, //src coords
+                player.x, player.y, player.width, player.height //dst coords
+            );
+        }
+
+        var particles = [];
+        function drawPlayerExplosion(c) {
+            //start
+            if (player.counter == 0) {
+                particles = []; //clear any old values
+                for (var i = 0; i < 50; i++) {
+                    particles.push({
+                        x: player.x + player.width / 2,
+                        y: player.y + player.height / 2,
+                        xv: (Math.random() - 0.5) * 2.0 * 5.0,  // x velocity
+                        yv: (Math.random() - 0.5) * 2.0 * 5.0,  // y velocity
+                        age: 0,
+                    });
+                }
+            }
+
+            //update and draw
+            if (player.counter > 0) {
+                for (var i = 0; i < particles.length; i++) {
+                    var p = particles[i];
+                    p.x += p.xv;
+                    p.y += p.yv;
+                    var v = 255 - p.age * 3;
+                    c.fillStyle = "rgb(" + v + "," + v + "," + v + ")";
+                    c.fillRect(p.x, p.y, 3, 3);
+                    p.age++;
+                }
+            }
+        };
+
+        function drawPlayerBullets(c) {
+            c.fillStyle = "blue";
+            for (i in playerBullets) {
+                var bullet = playerBullets[i];
+
+                //c.fillRect(bullet.x, bullet.y, bullet.width,bullet.height);
+                c.drawImage(
+                    bullet_image,
+                    0, 0, 8, 8,//src
+                    bullet.x, bullet.y, bullet.width, bullet.height//dst
+                );
+            }
+        }
+
+        // =========== enemies ===============
+
+        function drawEnemies(c) {
+            for (var i in enemies) {
+                var enemy = enemies[i];
+                if (enemy.state == "alive") {
+                    c.fillStyle = "green";
+                    drawEnemy(c, enemy, 15);
+                }
+                if (enemy.state == "hit") {
+
+                    player.score++;
+                }
+                //this probably won't ever be called.
+                if (enemy.state == "dead") {
+                }
+            }
+        }
+
+
+        function drawEnemy(c, enemy, radius) {
+            if (radius <= 0) radius = 1;
+
+            c.drawImage(enemyImg, enemy.x, enemy.y, 40, 40);
+        }
+
+        function createEnemyBullet(enemy) {
+            return {
+                x: enemy.x,
+                y: enemy.y + enemy.height,
+                width: 10,
+                height: 15,
+                counter: 0,
+            }
+        }
+
+        function drawEnemyBullets(c) {
+            for (var i in enemyBullets) {
+                var bullet = enemyBullets[i];
+                c.drawImage(bomb_image,
+                    0, 0, 11, 11,//src
+                    bullet.x, bullet.y, bullet.width, bullet.height//dest
+                );
+            }
+        }
+
+        function score() {
+            c.fillStyle = "white";
+            c.font = "Bold 16pt Arial";
+            c.fillText("Score: " + player.score, 0, 30);
+
+            if (player.score > bestScore) {
+                bestScore = player.score
+            }
+        }
+
+        // =========== overlay ===============
+
+        function drawOverlay(c) {
+            if (overlay.counter == -1) return;
+
+            c.save();
+            c.fillStyle = "white";
+            c.font = "Bold 25pt Arial";
+            c.fillText(overlay.title, 185, 200);
+            c.font = "14pt Arial";
+            c.fillText(overlay.subtitle, 210, 250);
+            c.restore();
+        }
+
+        doSetup();
+    </script>
+</body>
+
+</html>
